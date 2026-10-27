@@ -1,4 +1,11 @@
-# Quill
+<!-- markdownlint-disable MD033 -->
+
+<h1 align="center">
+  <img src="assets/logo.png" width="48" alt="Quill Logo">
+  Quill
+</h1>
+
+<!-- markdownlint-enable MD033 -->
 
 Quill analyzes staged Git changes and drafts a detailed Conventional Commit message. It keeps Git inspection, deterministic analysis, patch preparation, prompt construction, and model providers in separate components.
 
@@ -19,7 +26,7 @@ pytest
 
 ## Configure
 
-Set `GOOGLE_API_KEY` in the environment to use Gemini. Quill uses only `gemini-3.5-flash-lite`, with bounded retries for transient failures. It falls back to Ollama only for transient Gemini failures; missing keys, invalid credentials, and other configuration errors are reported directly.
+Set `GOOGLE_API_KEY` in the environment or in a `.env` file at the repository root to use Gemini. Quill uses only `gemini-3.5-flash-lite`, with bounded retries for transient failures. It falls back to Ollama only for transient Gemini failures; missing keys, invalid credentials, and other configuration errors are reported directly.
 
 Optional settings:
 
