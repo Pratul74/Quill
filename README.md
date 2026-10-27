@@ -1,33 +1,51 @@
-# Quill ✦
+# Quill
 
-Quill is a small terminal companion that reads your **staged Git diff** and drafts a Conventional Commit message. It uses Google Gemini first, then automatically switches to a local Ollama model if Gemini returns a rate limit response.
+Quill analyzes staged Git changes and drafts a detailed Conventional Commit message. It keeps Git inspection, deterministic analysis, patch preparation, prompt construction, and model providers in separate components.
 
 ## Install
 
-```bash
+Requires Python 3.12 or newer.
+
+```powershell
 python -m pip install -e .
 ```
 
-## Configure Gemini
+For development tools:
 
-Set `GEMINI_API_KEY` in your environment. Optional settings:
+```powershell
+python -m pip install -e ".[dev]"
+pytest
+```
 
-- `GEMINI_MODEL` (default: `gemini-2.5-flash`)
-- `OLLAMA_HOST` (default: `http://localhost:11434`)
-- `OLLAMA_MODEL` (default: `llama3.2`)
+## Configure
 
-Install and start Ollama, then pull a model (for example `ollama pull llama3.2`) to enable local fallback when Gemini rate limits you.
+Set `GOOGLE_API_KEY` in the environment to use Gemini. Quill tries `gemini-2.5-pro` and then `gemini-2.5-flash`, with bounded retries for transient failures. It falls back to Ollama only for transient Gemini failures; missing keys, invalid credentials, and other configuration errors are reported directly.
+
+Optional settings:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `GEMINI_MODELS` | `gemini-2.5-pro,gemini-2.5-flash` | Comma-separated Gemini model order |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama server |
+| `OLLAMA_MODEL` | `qwen3:8b` | Local fallback model |
+
+Ollama fallback requires a running local server and the selected model pulled in advance.
 
 ## Use
 
-Stage the changes you want to describe, then run `quill` from anywhere inside the repository. Quill shows the repository, branch, staged file summary, and generated message. It never commits without an explicit `--commit` option and confirmation.
+Stage the changes to describe, then run `quill` inside a repository:
 
-```bash
-git add src/
+```powershell
+git add .
 quill
-quill --edit              # type an edited message interactively
-quill --commit            # review, confirm, and create the commit
-quill --path ../project   # choose a repository directory
 ```
 
-Only staged changes are sent to the selected model. Review the generated message before using it.
+Quill displays repository information, deterministic analysis hints, and the generated message, then offers commit, edit, regenerate, or cancel. A commit is created only after you choose commit and confirm. Options:
+
+```powershell
+quill --path ..\another-repository
+quill --edit
+quill --commit
+```
+
+Only staged content is sent to the model. Generated lockfiles are listed but excluded from the patch prompt. Review the output before committing.
