@@ -19,13 +19,12 @@ pytest
 
 ## Configure
 
-Set `GOOGLE_API_KEY` in the environment to use Gemini. Quill tries `gemini-2.5-pro` and then `gemini-2.5-flash`, with bounded retries for transient failures. It falls back to Ollama only for transient Gemini failures; missing keys, invalid credentials, and other configuration errors are reported directly.
+Set `GOOGLE_API_KEY` in the environment to use Gemini. Quill uses only `gemini-3.5-flash-lite`, with bounded retries for transient failures. It falls back to Ollama only for transient Gemini failures; missing keys, invalid credentials, and other configuration errors are reported directly.
 
 Optional settings:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `GEMINI_MODELS` | `gemini-2.5-pro,gemini-2.5-flash` | Comma-separated Gemini model order |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server |
 | `OLLAMA_MODEL` | `qwen3:8b` | Local fallback model |
 
