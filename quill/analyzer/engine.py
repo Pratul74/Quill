@@ -25,6 +25,6 @@ class AnalyzerEngine:
         else:
             kind, reason = "chore", "No stronger deterministic commit type signal was found."
         parents = [path.parent.as_posix() for path in paths if path.parent.as_posix() not in ("", ".")]
-        scope = parents[0].split("/")[0] if parents and len(set(p.split("/")[1] for p in parents)) == 1 else None
+        scope = parents[0].split("/")[1] if parents and len(set(p.split("/")[1] for p in parents)) == 1 else None
         return AnalysisReport(kind, scope, 0.8 if kind in {"docs", "build", "ci"} else 0.55,
                               (reason,), tuple(sorted(counts.items())))
