@@ -12,6 +12,8 @@ class Repository:
             self.repo = Repo(Path(path).resolve(), search_parent_directories=True)
         except (InvalidGitRepositoryError, OSError) as exc:
             raise ValueError("This directory is not inside a Git repository.") from exc
+        if self.repo.bare:
+            raise ValueError("Quill needs a working tree; this is a bare Git repository.")
         self.root = Path(self.repo.working_tree_dir or self.repo.git_dir).resolve()
 
     def info(self) -> RepositoryInfo:
