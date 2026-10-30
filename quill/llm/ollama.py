@@ -1,5 +1,7 @@
 import os
 
+from langchain_ollama import ChatOllama
+
 from quill.llm.errors import ProviderError
 from quill.llm.provider import LLMProvider
 from quill.models.config import QuillConfig
@@ -16,10 +18,9 @@ class OllamaProvider(LLMProvider):
 
     def generate(self, prompt: str) -> str:
         try:
-            from ollama import Client
-            response = Client(host=self.host).chat(model=self.model, messages=[{"role": "user", "content": prompt}])
-            content = response.message.content
-            if not content:
+            response = ChatOllama(model=self.model, base_url=self.host, temperature=0.2).invoke(prompt)
+            content = response.content
+            if not isinstance(content, str) or not content.strip():
                 raise ProviderError("Ollama returned an empty response.")
             return content
         except ImportError as exc:
