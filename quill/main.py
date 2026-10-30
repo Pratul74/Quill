@@ -1,4 +1,5 @@
 import typer
+import click
 from git import GitCommandError
 from rich.prompt import Confirm, Prompt
 from rich.rule import Rule
@@ -65,7 +66,13 @@ def commit(
     action = "e" if edit else "y" if create else Prompt.ask("[cyan]Commit? [Y] commit / [E] edit / [R] regenerate / [N] cancel[/cyan]", choices=["y", "e", "r", "n"], default="n").lower()
     while action in ("e", "r"):
         if action == "e":
-            message = Prompt.ask("[cyan]Commit message[/cyan]", default=message)
+            edited = click.edit(message, extension=".txt")
+            if edited is not None:
+                message = edited.strip()
+            if not message:
+                console.print("[warning]The commit message cannot be empty.[/warning]")
+                action = Prompt.ask("[cyan]Commit? [Y] commit / [E] edit / [N] cancel[/cyan]", choices=["y", "e", "n"], default="e").lower()
+                continue
             action = "y" if create else Prompt.ask("[cyan]Commit? [Y] commit / [N] cancel[/cyan]", choices=["y", "n"], default="n").lower()
             break
         with console.status("[cyan]Regenerating message…[/cyan]", spinner="dots"):
