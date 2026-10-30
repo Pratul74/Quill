@@ -21,7 +21,7 @@ class AnalyzerEngine:
         elif any(item.additions for item in snapshot.changed_files) and not any(item.deletions for item in snapshot.changed_files):
             kind, reason = "feat", "Changes primarily add content."
         elif any(item.deletions for item in snapshot.changed_files):
-            kind, reason = "fix", "Changes include removals or replacements."
+            kind, reason = "refactor", "Changes replace or remove implementation; no bug fix is evident from file statistics alone."
         else:
             kind, reason = "chore", "No stronger deterministic commit type signal was found."
         parents = [path.parent.parts for path in paths]
