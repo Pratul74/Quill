@@ -1,5 +1,6 @@
 import os
-import time
+
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from quill.llm.errors import ConfigurationProviderError, ProviderError, TransientProviderError
 from quill.llm.provider import LLMProvider
@@ -17,42 +18,33 @@ class GeminiProvider(LLMProvider):
         if not self.api_key:
             raise ConfigurationProviderError("GOOGLE_API_KEY is not set.")
         try:
-            from google import genai
-            from google.genai import errors
-        except ImportError as exc:
-            raise ConfigurationProviderError("Install Quill's Gemini dependency to use Gemini.") from exc
-        client = genai.Client(api_key=self.api_key)
-        last_error: Exception | None = None
-        for attempt in range(self.retries + 1):
-            try:
-                response = client.models.generate_content(model=self.model, contents=prompt)
-                if not response.text:
-                    raise ProviderError("Gemini returned an empty response.")
-                return response.text
-            except errors.ClientError as exc:
-                if getattr(exc, "code", None) in (401, 403):
-                    raise ConfigurationProviderError(f"Gemini authentication failed: {exc}") from exc
-                if getattr(exc, "code", None) != 429:
-                    raise ProviderError(f"Gemini request failed: {exc}") from exc
-                last_error = exc
-                if attempt < self.retries:
-                    time.sleep(min(2**attempt, 4))
-            except errors.ServerError as exc:
-                last_error = exc
-                if attempt < self.retries:
-                    time.sleep(min(2**attempt, 4))
-            except errors.APIError as exc:
-                if getattr(exc, "code", None) in (401, 403):
-                    raise ConfigurationProviderError(f"Gemini authentication failed: {exc}") from exc
-                code = getattr(exc, "code", None)
-                if code == 429 or (code is not None and code >= 500) or code is None:
-                    last_error = exc
-                    if attempt < self.retries:
-                        time.sleep(min(2**attempt, 4))
-                    continue
-                raise ProviderError(f"Gemini request failed: {exc}") from exc
-            except ProviderError:
-                raise
-            except Exception as exc:
-                raise ProviderError(f"Gemini request failed: {exc}") from exc
-        raise TransientProviderError(f"Gemini {self.model} is temporarily unavailable: {last_error}")
+            model = ChatGoogleGenerativeAI(
+                model=self.model,
+                google_api_key=self.api_key,
+                max_retries=self.retries,
+                temperature=0.2,
+            )
+            response = model.invoke(prompt)
+            content = response.content
+            if isinstance(content, str) and content.strip():
+                return content
+            raise ProviderError("Gemini returned an empty response.")
+        except ProviderError:
+            raise
+        except Exception as exc:
+            text = str(exc)
+            lower_text = text.lower()
+            if "api key" in lower_text or "permission_denied" in lower_text or "unauthorized" in lower_text:
+                raise ConfigurationProviderError(f"Gemini authentication failed: {text}") from exc
+            status_code = getattr(exc, "status_code", None)
+            response = getattr(exc, "response", None)
+            status_code = status_code or getattr(response, "status_code", None)
+            temporary_status = any(code in lower_text for code in ("429", "500", "502", "503", "504"))
+            if (
+                status_code == 429
+                or (status_code is not None and status_code >= 500)
+                or temporary_status
+                or isinstance(exc, (TimeoutError, ConnectionError))
+            ):
+                raise TransientProviderError(f"Gemini {self.model} is temporarily unavailable: {text}") from exc
+            raise ProviderError(f"Gemini request failed: {text}") from exc
