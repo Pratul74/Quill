@@ -1,5 +1,6 @@
 import os
 
+from google.api_core import exceptions as gexc
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from quill.llm.errors import ConfigurationProviderError, ProviderError, TransientProviderError
@@ -9,42 +10,53 @@ from quill.models.config import QuillConfig
 
 class GeminiProvider(LLMProvider):
     def __init__(self, api_key: str | None = None, retries: int = 2) -> None:
-        config = QuillConfig(retries=retries)
+        config = QuillConfig()
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         self.model = config.gemini_model
-        self.retries = config.retries
+        self.retries = retries
+        self._client: ChatGoogleGenerativeAI | None = None
 
-    def generate(self, prompt: str) -> str:
+    def _get_client(self) -> ChatGoogleGenerativeAI:
         if not self.api_key:
             raise ConfigurationProviderError("GOOGLE_API_KEY is not set.")
-        try:
-            model = ChatGoogleGenerativeAI(
+        if self._client is None:
+            self._client = ChatGoogleGenerativeAI(
                 model=self.model,
                 google_api_key=self.api_key,
                 max_retries=self.retries,
                 temperature=0.2,
             )
-            response = model.invoke(prompt)
-            content = response.content
-            if isinstance(content, str) and content.strip():
-                return content
-            raise ProviderError("Gemini returned an empty response.")
-        except ProviderError:
-            raise
+        return self._client
+
+    @staticmethod
+    def _extract_text(content) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "".join(
+                p if isinstance(p, str) else p.get("text", "")
+                for p in content
+                if isinstance(p, (str, dict))
+            )
+        return ""
+
+    def generate(self, prompt: str) -> str:
+        client = self._get_client()
+        try:
+            result = client.invoke(prompt)
+        except (gexc.Unauthenticated, gexc.PermissionDenied) as exc:
+            raise ConfigurationProviderError(f"Gemini authentication failed: {exc}") from exc
+        except (gexc.ResourceExhausted, gexc.ServiceUnavailable,
+                gexc.DeadlineExceeded, gexc.InternalServerError,
+                TimeoutError, ConnectionError) as exc:
+            raise TransientProviderError(
+                f"Gemini {self.model} is temporarily unavailable: {exc}"
+            ) from exc
         except Exception as exc:
-            text = str(exc)
-            lower_text = text.lower()
-            if "api key" in lower_text or "permission_denied" in lower_text or "unauthorized" in lower_text:
-                raise ConfigurationProviderError(f"Gemini authentication failed: {text}") from exc
-            status_code = getattr(exc, "status_code", None)
-            response = getattr(exc, "response", None)
-            status_code = status_code or getattr(response, "status_code", None)
-            temporary_status = any(code in lower_text for code in ("429", "500", "502", "503", "504"))
-            if (
-                status_code == 429
-                or (status_code is not None and status_code >= 500)
-                or temporary_status
-                or isinstance(exc, (TimeoutError, ConnectionError))
-            ):
-                raise TransientProviderError(f"Gemini {self.model} is temporarily unavailable: {text}") from exc
-            raise ProviderError(f"Gemini request failed: {text}") from exc
+            raise ProviderError(f"Gemini request failed: {exc}") from exc
+
+        text = self._extract_text(result.content).strip()
+        if not text:
+            reason = getattr(result, "response_metadata", {}).get("finish_reason")
+            raise ProviderError(f"Gemini returned an empty response (finish_reason={reason}).")
+        return text
