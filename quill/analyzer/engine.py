@@ -24,7 +24,14 @@ class AnalyzerEngine:
             kind, reason = "fix", "Changes include removals or replacements."
         else:
             kind, reason = "chore", "No stronger deterministic commit type signal was found."
-        parents = [path.parent.as_posix() for path in paths if path.parent.as_posix() not in ("", ".")]
-        scope = parents[0].split("/")[1] if parents and len(set(p.split("/")[1] for p in parents)) == 1 else None
+        parents = [path.parent.parts for path in paths]
+        shared: list[str] = []
+        if parents:
+            for components in zip(*parents):
+                if len(set(components)) != 1:
+                    break
+                shared.append(components[0])
+        # Use the deepest shared directory. For a single file, this is its parent.
+        scope = shared[-1] if shared else None
         return AnalysisReport(kind, scope, 0.8 if kind in {"docs", "build", "ci"} else 0.55,
                               (reason,), tuple(sorted(counts.items())))
