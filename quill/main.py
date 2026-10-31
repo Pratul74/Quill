@@ -4,6 +4,8 @@ from git import GitCommandError
 from rich.prompt import Confirm, Prompt
 from rich.rule import Rule
 
+from quill.config.exceptions import ConfigError
+from quill.config.manager import ConfigManager
 from quill.llm.errors import ProviderError
 from quill.services.ai import generate_commit_message
 from quill.services.git import inspect_repository
@@ -40,6 +42,12 @@ def commit(
         console.print(f"\n[error]✕ {exc}[/error]")
         raise typer.Exit(1) from exc
 
+    try:
+        settings = ConfigManager().load(project_root=snapshot.info.root_path)
+    except ConfigError as exc:
+        console.print(f"\n[error]✕ {exc}[/error]")
+        raise typer.Exit(1) from exc
+
     console.print(repository_panel(snapshot))
     console.print(changes_panel(snapshot))
     from quill.analyzer.engine import AnalyzerEngine
@@ -55,18 +63,18 @@ def commit(
     console.print(Rule("[bright_black]READING YOUR CHANGES[/bright_black]", style="bright_black"))
     with console.status("[cyan]Understanding the staged diff…[/cyan]", spinner="dots"):
         try:
-            result = generate_commit_message(snapshot)
-        except ProviderError as exc:
+            result = generate_commit_message(snapshot, settings)
+        except (ProviderError, ConfigError) as exc:
             console.print(f"\n[error]✕ {exc}[/error]")
             raise typer.Exit(1) from exc
-    provider = "Ollama · local fallback" if result.fallback_used else "Gemini"
+    provider = f"{result.provider.value.capitalize()} · local fallback" if result.fallback_used else result.provider.value.capitalize()
     console.print(message_panel(result.message, provider))
 
     message = result.message
     action = "e" if edit else "y" if create else Prompt.ask("[cyan]Commit? [Y] commit / [E] edit / [R] regenerate / [N] cancel[/cyan]", choices=["y", "e", "r", "n"], default="n").lower()
     while action in ("e", "r"):
         if action == "e":
-            edited = click.edit(message, extension=".txt")
+            edited = click.edit(message, extension=".txt", editor=settings.app.editor)
             if edited is not None:
                 message = edited.strip()
             if not message:
@@ -77,15 +85,16 @@ def commit(
             break
         with console.status("[cyan]Regenerating message…[/cyan]", spinner="dots"):
             try:
-                result = generate_commit_message(snapshot)
-            except ProviderError as exc:
+                result = generate_commit_message(snapshot, settings)
+            except (ProviderError, ConfigError) as exc:
                 console.print(f"\n[error]✕ {exc}[/error]")
                 raise typer.Exit(1) from exc
         message = result.message
-        console.print(message_panel(message, "Ollama · local fallback" if result.fallback_used else "Gemini"))
+        provider = f"{result.provider.value.capitalize()} · local fallback" if result.fallback_used else result.provider.value.capitalize()
+        console.print(message_panel(message, provider))
         action = Prompt.ask("[cyan]Commit? [Y] commit / [E] edit / [R] regenerate / [N] cancel[/cyan]", choices=["y", "e", "r", "n"], default="n").lower()
     if action == "y":
-        if not Confirm.ask("Create this commit?", default=True):
+        if settings.app.confirm_before_commit and not Confirm.ask("Create this commit?", default=True):
             console.print("[bright_black]No commit created.[/bright_black]")
             raise typer.Exit(0)
         try:
