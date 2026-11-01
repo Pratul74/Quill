@@ -1,10 +1,10 @@
 import re
 from typing import TypedDict
 
-from dotenv import load_dotenv
 from langgraph.graph import END, START, StateGraph
 
 from quill.analyzer.engine import AnalyzerEngine
+from quill.config.models import QuillSettings
 from quill.llm.errors import ProviderError
 from quill.llm.manager import LLMManager
 from quill.models.analysis import AnalysisReport
@@ -17,6 +17,7 @@ from quill.prompt.processor import PatchProcessor
 
 class _GenerationState(TypedDict, total=False):
     snapshot: RepositorySnapshot
+    settings: QuillSettings
     analysis: AnalysisReport
     patches: tuple[ProcessedPatch, ...]
     prompt: str
@@ -33,11 +34,13 @@ def _build_generation_graph():
         patches = PatchProcessor().process(state["snapshot"])
         if not any(patch.content for patch in patches):
             raise ProviderError("The staged changes contain no reviewable text after generated files are omitted.")
-        prompt = PromptBuilder().build(state["snapshot"], state["analysis"], patches)
+        prompt = PromptBuilder().build(
+            state["snapshot"], state["analysis"], patches, state["settings"].app
+        )
         return {"patches": patches, "prompt": prompt}
 
     def generate(state: _GenerationState) -> dict:
-        result = LLMManager().generate(state["prompt"])
+        result = LLMManager(state["settings"]).generate(state["prompt"])
         message = _clean_message(result.message)
         if not message:
             raise ProviderError("The model returned an empty commit message.")
@@ -59,7 +62,7 @@ Context:
 Draft:
 {message}
 """
-        response = LLMManager().generate(review_prompt)
+        response = LLMManager(state["settings"]).generate(review_prompt)
         return {"review": response.message.strip()}
 
     def should_revise(state: _GenerationState) -> str:
@@ -80,7 +83,7 @@ Current draft:
 Review feedback:
 {state['review']}
 """
-        result = LLMManager().generate(revision_prompt)
+        result = LLMManager(state["settings"]).generate(revision_prompt)
         message = _clean_message(result.message)
         if not message:
             raise ProviderError("The model returned an empty revised commit message.")
@@ -110,12 +113,10 @@ def _clean_message(value: str) -> str:
     return message.strip()
 
 
-def generate_commit_message(snapshot: RepositorySnapshot) -> GenerationResult:
+def generate_commit_message(snapshot: RepositorySnapshot, settings: QuillSettings) -> GenerationResult:
     """Build model context from a staged snapshot and generate a commit message."""
     if not snapshot.diff.text.strip():
         raise ProviderError("The staged diff is empty. Stage the changes you want Quill to describe.")
 
-    load_dotenv(snapshot.info.root_path / ".env", override=False)
-
-    state = _GENERATION_GRAPH.invoke({"snapshot": snapshot})
+    state = _GENERATION_GRAPH.invoke({"snapshot": snapshot, "settings": settings})
     return state["result"]
