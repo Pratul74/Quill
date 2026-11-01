@@ -12,6 +12,8 @@ class AppConfig(BaseModel):
     editor: str | None = None
     confirm_before_commit: bool = True
     gemini_model: str = "gemini-3.5-flash-lite"
+    openai_model: str = "gpt-4o-mini"
+    anthropic_model: str = "claude-haiku-4-5-20251001"
     ollama_model: str = "qwen3:8b"
     ollama_host: str = "http://localhost:11434"
     retries: int = Field(default=2, ge=0, le=5)
@@ -20,8 +22,8 @@ class AppConfig(BaseModel):
     @classmethod
     def validate_default_model(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if normalized not in {"gemini", "ollama"}:
-            raise ValueError("default_model must be 'gemini' or 'ollama'.")
+        if normalized not in {"gemini", "openai", "anthropic", "ollama"}:
+            raise ValueError("default_model must be 'gemini', 'openai', 'anthropic', or 'ollama'.")
         return normalized
 
 
@@ -51,6 +53,8 @@ class LLMConfig(BaseModel):
 
     default_model: str
     gemini_model: str
+    openai_model: str = "gpt-4o-mini"
+    anthropic_model: str = "claude-haiku-4-5-20251001"
     ollama_model: str
     ollama_host: str
     retries: int
