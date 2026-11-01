@@ -1,9 +1,8 @@
 <!-- markdownlint-disable MD033 -->
 
-<h1 align="center">
-  <img src="assets/logo.png" width="48" alt="Quill Logo">
-  Quill
-</h1>
+<p align="center">
+  <img src="assets/banner.svg" alt="Quill: AI Commit Assistant" width="640">
+</p>
 
 <!-- markdownlint-enable MD033 -->
 
