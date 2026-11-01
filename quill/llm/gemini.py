@@ -1,35 +1,34 @@
-import os
-
 from google.api_core import exceptions as gexc
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from quill.config.exceptions import MissingAPIKeyError
 from quill.llm.errors import ConfigurationProviderError, ProviderError, TransientProviderError
 from quill.llm.provider import LLMProvider
-from quill.models.config import QuillConfig
 
 
 class GeminiProvider(LLMProvider):
-    def __init__(self, api_key: str | None = None, retries: int = 2) -> None:
-        config = QuillConfig()
-        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
-        self.model = config.gemini_model
+    def __init__(self, api_key: str | None, model: str, retries: int = 2) -> None:
+        self.api_key = api_key or None
+        self.model = model
         self.retries = retries
         self._client: ChatGoogleGenerativeAI | None = None
 
     def _get_client(self) -> ChatGoogleGenerativeAI:
         if not self.api_key:
-            raise ConfigurationProviderError("GOOGLE_API_KEY is not set.")
+            raise MissingAPIKeyError(
+                "Gemini requires an API key. Add google_api_key to Quill's global secrets.toml "
+                "or export GOOGLE_API_KEY in your shell."
+            )
         if self._client is None:
             self._client = ChatGoogleGenerativeAI(
                 model=self.model,
                 google_api_key=self.api_key,
                 max_retries=self.retries,
-                temperature=0.2,
             )
         return self._client
 
     @staticmethod
-    def _extract_text(content) -> str:
+    def _extract_text(content: object) -> str:
         if isinstance(content, str):
             return content
         if isinstance(content, list):
