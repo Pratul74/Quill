@@ -4,6 +4,8 @@ from enum import Enum
 
 class ProviderName(str, Enum):
     GEMINI = "gemini"
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
     OLLAMA = "ollama"
 
 
