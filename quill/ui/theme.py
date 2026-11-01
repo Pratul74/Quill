@@ -9,6 +9,8 @@ theme = Theme({
     "error": "red",
     "info": "#a47dff",
     "border": "#7c5cff",
+    "link": "underline #a47dff",
+
     "success.bold": "bold green",
     "error.bold": "bold red",
     "warning.bold": "bold yellow",

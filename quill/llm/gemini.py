@@ -1,4 +1,5 @@
 from google.api_core import exceptions as gexc
+from collections.abc import Callable
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from quill.config.exceptions import MissingAPIKeyError
@@ -40,9 +41,26 @@ class GeminiProvider(LLMProvider):
         return ""
 
     def generate(self, prompt: str) -> str:
+        return self._generate(prompt, None)
+
+    def stream(self, prompt: str, on_token: Callable[[str], None]) -> str:
+        return self._generate(prompt, on_token)
+
+    def _generate(self, prompt: str, on_token: Callable[[str], None] | None) -> str:
         client = self._get_client()
         try:
-            result = client.invoke(prompt)
+            if on_token is None:
+                result = client.invoke(prompt)
+                content = result.content
+                text = self._extract_text(content)
+            else:
+                parts = []
+                for chunk in client.stream(prompt):
+                    piece = self._extract_text(chunk.content)
+                    if piece:
+                        parts.append(piece)
+                        on_token(piece)
+                text = "".join(parts)
         except (gexc.Unauthenticated, gexc.PermissionDenied) as exc:
             raise ConfigurationProviderError(f"Gemini authentication failed: {exc}") from exc
         except (gexc.ResourceExhausted, gexc.ServiceUnavailable,
@@ -54,7 +72,7 @@ class GeminiProvider(LLMProvider):
         except Exception as exc:
             raise ProviderError(f"Gemini request failed: {exc}") from exc
 
-        text = self._extract_text(result.content).strip()
+        text = text.strip()
         if not text:
             reason = getattr(result, "response_metadata", {}).get("finish_reason")
             raise ProviderError(f"Gemini returned an empty response (finish_reason={reason}).")
