@@ -27,6 +27,7 @@ from quill.ui.components import (
     setup_summary,
     status_line,
     step_label,
+    prompt_label,
 )
 from quill.ui.console import console
 from quill.ui.panels import changes_panel, repository_panel
@@ -48,7 +49,7 @@ def _provider_label(result) -> str:
 
 def _generate(snapshot, settings, label: str):
     error: Exception
-    with console.status(Text(label, style="info"), spinner="dots12", spinner_style="info"):
+    with console.status(Text(label, style="info"), spinner="dots12"):
         try:
             return generate_commit_message(snapshot, settings)
         except (ProviderError, ConfigError) as exc:
@@ -133,18 +134,17 @@ def commit(
         console.print()
         console.print(
             Text.assemble(
-                ("Nothing committed. ", "bright_black"),
-                ("Run ", "bright_black"),
+                ("Nothing committed. Run", "muted"),
                 ("quill --commit", "info.bold"),
-                (" to create this commit.", "bright_black"),
+                (" to create this commit.", "muted"),
             )
         )
         return
 
     if settings.app.confirm_before_commit and not Confirm.ask(
-        Text.assemble(("? ", "info.bold"), ("Create this commit?", "white")), default=True, console=console
+        prompt_label("Create this commit?"), default=True, console=console
     ):
-        console.print(Text("No commit created.", style="bright_black"))
+        console.print(Text("No commit created.", style="muted"))
         raise typer.Exit(0)
 
     try:
@@ -170,13 +170,14 @@ def pull_ollama_model(
 
 def _first_run_setup() -> None:
     directory = paths.config_directory()
-    first_run = not (directory / "secrets.toml").exists()
+    setup_marker = directory / ".setup_done"
+    first_run = not (setup_marker.exists() or (directory / "secrets.toml").exists())
     initialize_config(directory)
     if not first_run or not click.get_text_stream("stdin").isatty():
         return
 
     def ask(label: str, **kwargs) -> str:
-        return Prompt.ask(Text.assemble(("❯ ", "info.bold"), (label, "white")), console=console, **kwargs)
+        return Prompt.ask(prompt_label(label), console=console, **kwargs)
 
     console.print(setup_header())
 
@@ -203,7 +204,7 @@ def _first_run_setup() -> None:
 
     console.print(step_label(5, "Safety"))
     confirm = Confirm.ask(
-        Text.assemble(("❯ ", "info.bold"), ("Confirm before creating a commit?", "white")),
+        prompt_label("Confirm before creating a commit?"),
         default=True, console=console,
     )
 
@@ -234,7 +235,7 @@ def _first_run_setup() -> None:
         }
         secret_field, label, url = key_prompts[provider]
         console.print(step_label(6, "API key"))
-        console.print(Text.assemble(("  Get one at ", "bright_black"), (url, "link")))
+        console.print(Text.assemble(("  Get one at ", "muted"), (url, "link")))
         api_key = ask(label, password=True).strip()
 
     if api_key:
@@ -254,7 +255,8 @@ def _first_run_setup() -> None:
     elif provider != "ollama" and not has_key_in_env:
         console.print()
         console.print(status_line("warning", f"No key entered. Add {secret_field} to secrets.toml before generating messages."))
-        (directory / "secrets.toml").unlink(missing_ok=True)
+
+    setup_marker.write_text("done\n", encoding="utf-8")
 
     console.print()
     console.print(
