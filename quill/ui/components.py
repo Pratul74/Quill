@@ -1,4 +1,3 @@
-# quill/ui/components.py
 from __future__ import annotations
 
 from rich import box
@@ -9,7 +8,7 @@ from rich.table import Table
 from rich.text import Text
 
 from quill.ui.console import console
-from quill.ui.preview import TYPE_COLORS
+from quill.ui.theme import type_badge
 
 KINDS = {
     "success": ("✓", "success"),
@@ -19,31 +18,31 @@ KINDS = {
 }
 
 ACTIONS = {
-    "y": ("Y", "Commit", "bold black on green"),
-    "e": ("E", "Edit", "bold black on #a47dff"),
-    "r": ("R", "Regenerate", "bold black on yellow"),
-    "n": ("N", "Cancel", "bold white on bright_black"),
+    "y": ("Y", "Commit", "badge.success"),
+    "e": ("E", "Edit", "badge.info"),
+    "r": ("R", "Regenerate", "badge.warning"),
+    "n": ("N", "Cancel", "badge.muted"),
 }
 
 
 def section(title: str) -> Rule:
-    return Rule(Text(f" {title} ", style="info.bold"), style="bright_black", characters="─")
+    return Rule(Text(f" {title} ", style="info.bold"), style="rule.line", characters="─")
 
 
 def status_line(kind: str, message: object) -> Text:
     icon, style = KINDS[kind]
-    return Text.assemble((f"{icon} ", f"{style}.bold"), (str(message), "white"), overflow="fold")
+    return Text.assemble((f"{icon} ", f"{style}.bold"), (str(message), "text"), overflow="fold")
 
 
 def notice_panel(kind: str, title: str, message: object, hint: str | None = None) -> Panel:
     icon, style = KINDS[kind]
-    body = Text(str(message), style="white", overflow="fold")
+    body = Text(str(message), style="text", overflow="fold")
     if hint:
         body.append("\n")
-        body.append(hint, style="bright_black")
+        body.append(hint, style="muted")
     return Panel(
         body,
-        title=Text.assemble((f"{icon} ", f"{style}.bold"), (title, "bold white")),
+        title=Text.assemble((f"{icon} ", f"{style}.bold"), (title, "title")),
         title_align="left",
         border_style=style,
         box=box.ROUNDED,
@@ -55,17 +54,18 @@ def _confidence_bar(value: float, width: int = 20) -> Text:
     value = max(0.0, min(1.0, value))
     filled = round(value * width)
     style = "success" if value >= 0.75 else "warning" if value >= 0.5 else "error"
-    return Text.assemble(("█" * filled, style), ("░" * (width - filled), "bright_black"))
+    return Text.assemble(("█" * filled, style), ("░" * (width - filled), "faint"))
 
 
 def analysis_panel(report) -> Panel:
     kind = str(getattr(report.commit_type, "value", report.commit_type))
-    head = Text(f" {kind.upper()} ", style=f"bold black on {TYPE_COLORS.get(kind.lower(), 'grey70')}")
+    head = Text()
+    head.append(f" {kind.upper()} ", style=type_badge(kind))
     if report.scope:
         head.append(f"  ({report.scope})", style="info.bold")
 
     confidence = _confidence_bar(report.confidence)
-    confidence.append(f"  {report.confidence:.0%}", style="bold white")
+    confidence.append(f"  {report.confidence:.0%}", style="title")
 
     grid = Table.grid(padding=(0, 2))
     grid.add_column(style="subtitle", no_wrap=True)
@@ -74,15 +74,15 @@ def analysis_panel(report) -> Panel:
     grid.add_row("CONFIDENCE", confidence)
     if report.reasons:
         reasons = Text("\n").join(
-            Text.assemble(("› ", "info"), (str(reason), "white")) for reason in report.reasons
+            Text.assemble(("› ", "info"), (str(reason), "text")) for reason in report.reasons
         )
         grid.add_row("WHY", reasons)
 
     return Panel(
         grid,
-        title=Text.assemble(("◈ ", "info"), ("ANALYSIS", "bold white")),
+        title=Text.assemble(("◈ ", "info"), ("ANALYSIS", "title")),
         title_align="left",
-        border_style="bright_black",
+        border_style="border",
         box=box.ROUNDED,
         padding=(1, 2),
     )
@@ -93,7 +93,7 @@ def action_bar(keys: str) -> Text:
     for key in keys:
         letter, label, style = ACTIONS[key]
         bar.append(f" {letter} ", style=style)
-        bar.append(f" {label}   ", style="white")
+        bar.append(f" {label}   ", style="text")
     return bar
 
 
@@ -101,7 +101,7 @@ def ask_action(keys: str, default: str = "n") -> str:
     console.print()
     console.print(action_bar(keys))
     answer = Prompt.ask(
-        Text.assemble(("❯ ", "info.bold"), ("Choose", "white")),
+        prompt_label("Choose"),
         choices=list(keys),
         default=default,
         console=console,
@@ -120,11 +120,11 @@ def commit_success_panel(sha: str, branch: object, message: str) -> Panel:
     grid.add_column(ratio=1)
     grid.add_row("COMMIT", Text(sha[:7], style="info.bold"))
     grid.add_row("BRANCH", Text(str(branch), style="info"))
-    grid.add_row("MESSAGE", Text(subject, style="bold white", overflow="fold"))
+    grid.add_row("MESSAGE", Text(subject, style="title", overflow="fold"))
 
     return Panel(
         grid,
-        title=Text.assemble(("✓ ", "success.bold"), ("COMMIT CREATED", "bold white")),
+        title=Text.assemble(("✓ ", "success.bold"), ("COMMIT CREATED", "title")),
         title_align="left",
         border_style="success",
         box=box.ROUNDED,
@@ -134,12 +134,12 @@ def commit_success_panel(sha: str, branch: object, message: str) -> Panel:
 
 def setup_header() -> Panel:
     body = Text.assemble(
-        ("Let's get Quill ready.\n", "bold white"),
-        ("Pick a provider and tweak the defaults. You can change anything later in config.toml.", "bright_black"),
+        ("Let's get Quill ready.\n", "title"),
+        ("Pick a provider and tweak the defaults. You can change anything later in config.toml.", "muted"),
     )
     return Panel(
         body,
-        title=Text.assemble(("✦ ", "info"), ("FIRST-TIME SETUP", "bold white")),
+        title=Text.assemble(("✦ ", "info"), ("FIRST-TIME SETUP", "title")),
         title_align="left",
         border_style="border",
         box=box.ROUNDED,
@@ -148,7 +148,7 @@ def setup_header() -> Panel:
 
 
 def step_label(index: int, label: str) -> Text:
-    return Text.assemble(("\n", ""), (f" {index} ", "bold black on #a47dff"), (f"  {label}", "bold white"))
+    return Text.assemble(("\n", ""), (f" {index} ", "badge.info"), (f"  {label}", "title"))
 
 
 def setup_summary(rows: list[tuple[str, str]]) -> Panel:
@@ -156,12 +156,15 @@ def setup_summary(rows: list[tuple[str, str]]) -> Panel:
     grid.add_column(style="subtitle", no_wrap=True)
     grid.add_column(ratio=1)
     for label, value in rows:
-        grid.add_row(label, Text(value, style="white", overflow="fold"))
+        grid.add_row(label, Text(value, style="text", overflow="fold"))
     return Panel(
         grid,
-        title=Text.assemble(("✓ ", "success.bold"), ("YOU'RE ALL SET", "bold white")),
+        title=Text.assemble(("✓ ", "success.bold"), ("YOU'RE ALL SET", "title")),
         title_align="left",
         border_style="success",
         box=box.ROUNDED,
         padding=(1, 2),
     )
+
+def prompt_label(text: str) -> Text:
+    return Text.assemble(("❯ ", "info.bold"), (text, "text"))
