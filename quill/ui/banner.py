@@ -1,10 +1,10 @@
 from rich import box
 from rich.align import Align
 from rich.console import Group, RenderableType
-from quill.ui.console import console
 from rich.panel import Panel
 from rich.text import Text
 
+from quill.ui.console import console
 
 GLYPHS = {
     "Q": [
@@ -42,6 +42,10 @@ GLYPHS = {
 }
 
 GRADIENT = [f"logo.{i}" for i in range(1, 7)]
+NAME = "AI Commit Assistant"
+TAGLINE = "Thoughtful commit messages from staged changes."
+PADDING_X = 4
+PANEL_OVERHEAD = PADDING_X * 2 + 2
 
 
 def build_logo(word: str = "QUILL") -> list[str]:
@@ -52,10 +56,10 @@ def build_logo(word: str = "QUILL") -> list[str]:
 
 def show_banner() -> RenderableType:
     logo_rows = build_logo()
-    logo_width = len(logo_rows[0])
+    content_width = max(len(logo_rows[0]), len(TAGLINE))
 
-    if console.width < logo_width + 12:
-        header: list[RenderableType] = [Text("QUILL", style="logo", justify="center")]
+    if console.width < content_width + PANEL_OVERHEAD:
+        header: list[RenderableType] = [Align.center(Text("QUILL", style="logo"))]
     else:
         header = [
             Align.center(Text(row, style=style, no_wrap=True))
@@ -63,15 +67,15 @@ def show_banner() -> RenderableType:
         ]
 
     subtitle = Text(justify="center")
-    subtitle.append("AI Commit Assistant", style="title")
+    subtitle.append(NAME, style="title")
     subtitle.append("\n")
-    subtitle.append("Thoughtful commit messages from staged changes.", style="subtitle")
+    subtitle.append(TAGLINE, style="subtitle")
 
     panel = Panel(
         Group(*header, Text(""), subtitle),
         box=box.ROUNDED,
         border_style="border",
-        padding=(1, 4),
+        padding=(1, PADDING_X),
         expand=False,
     )
     return Align.center(panel)
