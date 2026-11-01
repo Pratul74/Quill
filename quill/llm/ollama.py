@@ -1,20 +1,13 @@
-import os
-
 from langchain_ollama import ChatOllama
 
 from quill.llm.errors import ProviderError
 from quill.llm.provider import LLMProvider
-from quill.models.config import QuillConfig
 
 
 class OllamaProvider(LLMProvider):
-    def __init__(self, model: str | None = None, host: str | None = None) -> None:
-        config = QuillConfig(
-            ollama_model=os.getenv("OLLAMA_MODEL", "qwen3:8b"),
-            ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-        )
-        self.model = model or config.ollama_model
-        self.host = host or config.ollama_host
+    def __init__(self, model: str, host: str) -> None:
+        self.model = model
+        self.host = host
 
     def generate(self, prompt: str) -> str:
         try:
