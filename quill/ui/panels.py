@@ -1,5 +1,4 @@
 from rich import box
-from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -9,18 +8,22 @@ from quill.models.snapshot import RepositorySnapshot
 MAX_ROWS = 12
 
 EXT_COLORS = {
-    ".py": "#4b8bbe", ".js": "#f7df1e", ".ts": "#3178c6", ".tsx": "#3178c6",
-    ".json": "#cbcb41", ".md": "#a47dff", ".toml": "#9c4221", ".yml": "#cb171e",
-    ".yaml": "#cb171e", ".html": "#e34c26", ".css": "#563d7c", ".rs": "#dea584",
+    ".py": "#4b8bbe", ".js": "#f7df1e", ".jsx": "#f7df1e",".ts": "#3178c6", ".tsx": "#3178c6",
+    ".json": "#cbcb41", ".md": "#a47dff", ".toml": "#d08a5c", ".yml": "#e0565b",
+    ".yaml": "#e0565b", ".html": "#e34c26", ".css": "#9d7fe0", ".rs": "#dea584",
     ".go": "#00add8", ".sh": "#89e051",
 }
+
+
+def _files(n: int) -> str:
+    return f"{n} file" if n == 1 else f"{n} files"
 
 
 def _bar(additions: int, deletions: int, scale: int, width: int) -> Text:
     """Proportional green/red bar. `scale` is the size that fills the full width."""
     total = additions + deletions
     if not total or not scale:
-        return Text("░" * width, style="bright_black")
+        return Text("░" * width, style="faint")
 
     filled = max(1, round(total / scale * width))
     green = round(filled * additions / total)
@@ -33,7 +36,7 @@ def _bar(additions: int, deletions: int, scale: int, width: int) -> Text:
     return Text.assemble(
         ("█" * green, "success"),
         ("█" * red, "error"),
-        ("░" * max(width - green - red, 0), "bright_black"),
+        ("░" * max(width - green - red, 0), "faint"),
     )
 
 
@@ -41,40 +44,38 @@ def _file_cell(path: str) -> Text:
     path = path.replace("\\", "/")
     directory, _, name = path.rpartition("/")
     suffix = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
-    dot_color = EXT_COLORS.get(suffix, "bright_black")
+    dot_color = EXT_COLORS.get(suffix, "#7f849c")
 
     cell = Text(no_wrap=True, overflow="ellipsis")
     cell.append("● ", style=dot_color)
     if directory:
-        cell.append(f"{directory}/", style="bright_black")
-    cell.append(name, style="bold white")
+        cell.append(f"{directory}/", style="muted")
+    cell.append(name, style="title")
     return cell
 
 
 def repository_panel(snapshot: RepositorySnapshot) -> Panel:
     info, diff, status = snapshot.info, snapshot.diff, snapshot.status
 
-    ready = status.can_create_messages
     badge = (
-        Text(" ✔ READY ", style="bold black on green")
-        if ready
-        else Text(" ! NEEDS ATTENTION ", style="bold black on yellow")
+        Text(" ✓ READY ", style="badge.success")
+        if status.can_create_messages
+        else Text(" ! NEEDS ATTENTION ", style="badge.warning")
     )
 
     grid = Table.grid(padding=(0, 2), expand=True)
     grid.add_column(style="subtitle", no_wrap=True)
     grid.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
 
-    repo = Text.assemble((info.name, "bold white"), ("   ", ""), (str(info.root_path), "bright_black"))
+    repo = Text.assemble((info.name, "title"), ("   ", ""), (str(info.root_path), "muted"))
     branch = Text.assemble(
-        ("> ", "info"),
+        ("❯ ", "info"),
         (str(info.current_branch), "info.bold"),
-        ("   ◆ ", "bright_black"),
-        (str(info.head_commit), "bright_black"),
+        ("   ◆ ", "muted"),
+        (str(info.head_commit), "muted"),
     )
     staged = Text.assemble(
-        (f"{len(diff.files)}", "bold white"),
-        (" files   ", "bright_black"),
+        (_files(len(diff.files)) + "   ", "title"),
         (f"+{diff.additions}", "success.bold"),
         ("  ", ""),
         (f"-{diff.deletions}", "error.bold"),
@@ -88,7 +89,7 @@ def repository_panel(snapshot: RepositorySnapshot) -> Panel:
 
     return Panel(
         grid,
-        title=Text.assemble(("✦ ", "info"), ("WORKSPACE", "bold white")),
+        title=Text.assemble(("✦ ", "info"), ("WORKSPACE", "title")),
         title_align="left",
         subtitle=badge,
         subtitle_align="right",
@@ -100,20 +101,20 @@ def repository_panel(snapshot: RepositorySnapshot) -> Panel:
 
 def changes_panel(snapshot: RepositorySnapshot) -> Panel:
     diff = snapshot.diff
-    title = Text.assemble(("◈ ", "info"), ("CHANGES IN THIS COMMIT", "bold white"))
+    title = Text.assemble(("◈ ", "info"), ("CHANGES IN THIS COMMIT", "title"))
 
     if not diff.files:
         message = Text.assemble(
             ("Nothing staged yet.  ", "warning"),
-            ("Run ", "bright_black"),
-            ("git add <files>", "bold info"),
-            (" and then ", "bright_black"),
-            ("quill", "bold info"),
-            (" again.", "bright_black"),
+            ("Run ", "muted"),
+            ("git add <files>", "info.bold"),
+            (" and then ", "muted"),
+            ("quill", "info.bold"),
+            (" again.", "muted"),
         )
         return Panel(
             message, title=title, title_align="left",
-            border_style="bright_black", box=box.ROUNDED, padding=(1, 2),
+            border_style="border", box=box.ROUNDED, padding=(1, 2),
         )
 
     files = list(snapshot.changed_files)
@@ -136,12 +137,12 @@ def changes_panel(snapshot: RepositorySnapshot) -> Panel:
         )
 
     if hidden:
-        table.add_row(Text(f"… and {hidden} more", style="bright_black italic"), "", "", "")
+        table.add_row(Text(f"… and {hidden} more", style="muted.italic"), "", "", "")
 
     footer = Text.assemble(
-        (f" {len(files)} files ", "bright_black"),
-        (f" +{diff.additions} ", "bold success"),
-        (f" -{diff.deletions} ", "bold error"),
+        (f" {_files(len(files))} ", "muted"),
+        (f" +{diff.additions} ", "success.bold"),
+        (f" -{diff.deletions} ", "error.bold"),
     )
 
     return Panel(
@@ -150,7 +151,7 @@ def changes_panel(snapshot: RepositorySnapshot) -> Panel:
         title_align="left",
         subtitle=footer,
         subtitle_align="right",
-        border_style="bright_black",
+        border_style="border",
         box=box.ROUNDED,
         padding=(1, 2),
     )
