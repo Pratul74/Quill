@@ -43,7 +43,7 @@ class ConfigManager:
 
         app = AppConfig.model_validate(values)
         llm = LLMConfig.model_validate(app.model_dump(include={
-            "default_model", "gemini_model", "ollama_model", "ollama_host", "retries",
+            "default_model", "gemini_model", "openai_model", "anthropic_model", "ollama_model", "ollama_host", "retries",
         }))
         return QuillSettings(app=app, llm=llm, secrets=SecretsConfig.model_validate(secrets))
 
@@ -54,6 +54,8 @@ class ConfigManager:
             "QUILL_LANGUAGE": "language",
             "QUILL_EDITOR": "editor",
             "QUILL_GEMINI_MODEL": "gemini_model",
+            "QUILL_OPENAI_MODEL": "openai_model",
+            "QUILL_ANTHROPIC_MODEL": "anthropic_model",
             "QUILL_RETRIES": "retries",
         }
         values: dict[str, object] = {
@@ -75,9 +77,9 @@ class ConfigManager:
         secrets: dict[str, object] = {}
         provider_keys = {}
         for provider in ("openai", "anthropic"):
-            variable = f"QUILL_{provider.upper()}_API_KEY"
-            if variable in self.environ:
-                provider_keys[provider] = self.environ[variable]
+            for variable in (f"{provider.upper()}_API_KEY", f"QUILL_{provider.upper()}_API_KEY"):
+                if variable in self.environ:
+                    provider_keys[provider] = self.environ[variable]
         if provider_keys:
             secrets["provider_api_keys"] = provider_keys
         for variable in ("GOOGLE_API_KEY", "QUILL_GOOGLE_API_KEY"):
