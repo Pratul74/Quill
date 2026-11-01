@@ -13,6 +13,21 @@ Quill analyzes staged Git changes and drafts a detailed Conventional Commit mess
 
 Requires Python 3.12 or newer.
 
+To build and install Quill as a command available across projects, use `pipx`. Quill and its dependencies will live in pipx's isolated environment rather than a project's `.venv`.
+
+```powershell
+python -m pip install build
+python -m build
+py -m pip install --user pipx
+py -m pipx ensurepath
+# Restart PowerShell so the updated PATH takes effect.
+pipx install .\dist\quill-0.1.0-py3-none-any.whl
+```
+
+The wheel filename includes Quill's version, so use the matching `.whl` file from `dist` after changing the version. To replace the installed local build, run `pipx install --force .\dist\<new-wheel-file>.whl`. For published releases, install with `pipx install <package-name>` instead of building locally.
+
+For development inside the repository, an editable installation is also available:
+
 ```powershell
 python -m pip install -e .
 ```
