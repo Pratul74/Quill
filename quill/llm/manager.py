@@ -2,6 +2,8 @@ from quill.config.exceptions import ConfigError
 from quill.config.models import QuillSettings
 from quill.llm.errors import ConfigurationProviderError, TransientProviderError
 from quill.llm.gemini import GeminiProvider
+from quill.llm.openai import OpenAIProvider
+from quill.llm.anthropic import AnthropicProvider
 from quill.llm.ollama import OllamaProvider
 from quill.models.patch import GenerationResult, ProviderName
 
@@ -14,13 +16,16 @@ class LLMManager:
             model=settings.llm.gemini_model,
             retries=settings.llm.retries,
         )
-        ollama = OllamaProvider(model=settings.llm.ollama_model, host=settings.llm.ollama_host)
-        if settings.llm.default_model.lower() == "ollama":
-            self.primary, self.fallback = ollama, gemini
-            self.primary_name, self.fallback_name = ProviderName.OLLAMA, ProviderName.GEMINI
-        else:
-            self.primary, self.fallback = gemini, ollama
-            self.primary_name, self.fallback_name = ProviderName.GEMINI, ProviderName.OLLAMA
+        providers = {
+            ProviderName.GEMINI: gemini,
+            ProviderName.OPENAI: OpenAIProvider(settings.secrets.openai_api_key or settings.secrets.provider_api_keys.get("openai"), settings.llm.openai_model),
+            ProviderName.ANTHROPIC: AnthropicProvider(settings.secrets.anthropic_api_key or settings.secrets.provider_api_keys.get("anthropic"), settings.llm.anthropic_model),
+            ProviderName.OLLAMA: OllamaProvider(model=settings.llm.ollama_model, host=settings.llm.ollama_host),
+        }
+        self.primary_name = ProviderName(settings.llm.default_model.lower())
+        self.primary = providers[self.primary_name]
+        self.fallback_name = ProviderName.OLLAMA if self.primary_name != ProviderName.OLLAMA else ProviderName.GEMINI
+        self.fallback = providers[self.fallback_name]
 
     def generate(self, prompt: str) -> GenerationResult:
         try:
