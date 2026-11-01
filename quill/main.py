@@ -7,6 +7,7 @@ import typer
 from git import GitCommandError
 from rich.prompt import Confirm, Prompt
 from rich.text import Text
+from rich.live import Live
 
 from quill.config import paths
 from quill.config.exceptions import ConfigError
@@ -30,7 +31,7 @@ from quill.ui.components import (
 )
 from quill.ui.console import console
 from quill.ui.panels import changes_panel, repository_panel
-from quill.ui.preview import message_panel
+from quill.ui.preview import message_panel, streaming_panel
 
 app = typer.Typer(help="Quill — thoughtful, AI-powered Git commit messages", no_args_is_help=False, add_completion=False)
 
@@ -47,13 +48,27 @@ def _provider_label(result) -> str:
 
 
 def _generate(snapshot, settings, label: str):
-    error: Exception
-    with console.status(Text(label, style="info"), spinner="dots12", spinner_style="info"):
+    buffer: list[str] = []
+    error: Exception | None = None
+    result = None
+
+    with Live(
+        streaming_panel("", label),
+        console=console,
+        refresh_per_second=20,
+        transient=True,
+    ) as live:
+        def on_token(token: str) -> None:
+            buffer.append(token)
+            live.update(streaming_panel("".join(buffer), label))
+
         try:
-            return generate_commit_message(snapshot, settings)
+            result = generate_commit_message(snapshot, settings, on_token=on_token)
         except (ProviderError, ConfigError) as exc:
             error = exc
-    _fail(error)
+    if error is not None:
+        _fail(error)
+    return result
 
 
 @app.callback(invoke_without_command=True)
@@ -234,7 +249,7 @@ def _first_run_setup() -> None:
         }
         secret_field, label, url = key_prompts[provider]
         console.print(step_label(6, "API key"))
-        console.print(Text.assemble(("  Get one at ", "bright_black"), (url, "info underline")))
+        console.print(Text.assemble(("  Get one at ", "bright_black"), (url, "link")))
         api_key = ask(label, password=True).strip()
 
     if api_key:
