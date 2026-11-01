@@ -1,25 +1,59 @@
 import json
 import os
-import typer
+from typing import NoReturn
+
 import click
+import typer
 from git import GitCommandError
 from rich.prompt import Confirm, Prompt
-from rich.rule import Rule
+from rich.text import Text
 
-from quill.config.exceptions import ConfigError
-from quill.config.manager import ConfigManager
 from quill.config import paths
+from quill.config.exceptions import ConfigError
 from quill.config.init import initialize_config
+from quill.config.manager import ConfigManager
 from quill.llm.errors import ProviderError
 from quill.llm.ollama import pull_model
 from quill.services.ai import generate_commit_message
 from quill.services.git import inspect_repository
 from quill.ui.banner import show_banner
+from quill.ui.components import (
+    analysis_panel,
+    ask_action,
+    commit_success_panel,
+    notice_panel,
+    section,
+    setup_header,
+    setup_summary,
+    status_line,
+    step_label,
+)
 from quill.ui.console import console
 from quill.ui.panels import changes_panel, repository_panel
 from quill.ui.preview import message_panel
 
 app = typer.Typer(help="Quill — thoughtful, AI-powered Git commit messages", no_args_is_help=False, add_completion=False)
+
+
+def _fail(message: object, title: str = "ERROR", hint: str | None = None) -> NoReturn:
+    console.print()
+    console.print(notice_panel("error", title, message, hint))
+    raise typer.Exit(1)
+
+
+def _provider_label(result) -> str:
+    name = result.provider.value.capitalize()
+    return f"{name} · local fallback" if result.fallback_used else name
+
+
+def _generate(snapshot, settings, label: str):
+    error: Exception
+    with console.status(Text(label, style="info"), spinner="dots12", spinner_style="info"):
+        try:
+            return generate_commit_message(snapshot, settings)
+        except (ProviderError, ConfigError) as exc:
+            error = exc
+    _fail(error)
 
 
 @app.callback(invoke_without_command=True)
@@ -39,87 +73,99 @@ def commit(
     create: bool = typer.Option(False, "--commit", help="Create a Git commit after reviewing the message."),
     edit: bool = typer.Option(False, "--edit", help="Edit the generated message before continuing."),
 ) -> None:
+    console.print()
     console.print(show_banner())
     _first_run_setup()
+
     try:
         repo, snapshot = inspect_repository(path)
     except (ValueError, GitCommandError) as exc:
-        console.print(f"\n[error]✕ {exc}[/error]")
-        raise typer.Exit(1) from exc
+        _fail(exc, "REPOSITORY ERROR")
 
     try:
         settings = ConfigManager().load(project_root=snapshot.info.root_path)
     except ConfigError as exc:
-        console.print(f"\n[error]✕ {exc}[/error]")
-        raise typer.Exit(1) from exc
+        _fail(exc, "CONFIG ERROR")
 
     console.print(repository_panel(snapshot))
     console.print(changes_panel(snapshot))
-    from quill.analyzer.engine import AnalyzerEngine
-    report = AnalyzerEngine().analyze(snapshot)
-    scope = f"({report.scope})" if report.scope else ""
-    console.print(f"[info]ANALYSIS[/info]  [bold]{report.commit_type}{scope}[/bold] · {report.confidence:.0%} confidence · {' '.join(report.reasons)}")
-    if snapshot.status.has_conflicts:
-        console.print("[error]Resolve merge conflicts before generating a commit message.[/error]")
-        raise typer.Exit(1)
-    if not snapshot.diff.files or not snapshot.diff.text.strip():
-        console.print("\n[warning]Stage the changes you want Quill to describe, then run it again.[/warning]")
-        raise typer.Exit(1)
-    console.print(Rule("[bright_black]READING YOUR CHANGES[/bright_black]", style="bright_black"))
-    with console.status("[cyan]Understanding the staged diff…[/cyan]", spinner="dots"):
-        try:
-            result = generate_commit_message(snapshot, settings)
-        except (ProviderError, ConfigError) as exc:
-            console.print(f"\n[error]✕ {exc}[/error]")
-            raise typer.Exit(1) from exc
-    provider = f"{result.provider.value.capitalize()} · local fallback" if result.fallback_used else result.provider.value.capitalize()
-    console.print(message_panel(result.message, provider))
 
+    if snapshot.status.has_conflicts:
+        _fail("Merge conflicts detected.", "CONFLICTS", "Resolve them, then run quill again.")
+    if not snapshot.diff.files or not snapshot.diff.text.strip():
+        console.print(
+            notice_panel(
+                "warning", "NOTHING STAGED",
+                "Stage the changes you want Quill to describe, then run it again.",
+            )
+        )
+        raise typer.Exit(1)
+
+    from quill.analyzer.engine import AnalyzerEngine
+
+    console.print(analysis_panel(AnalyzerEngine().analyze(snapshot)))
+
+    console.print()
+    console.print(section("READING YOUR CHANGES"))
+    result = _generate(snapshot, settings, "Understanding the staged diff…")
     message = result.message
-    action = "e" if edit else "y" if create else Prompt.ask("[cyan]Commit? [Y] commit / [E] edit / [R] regenerate / [N] cancel[/cyan]", choices=["y", "e", "r", "n"], default="n").lower()
+    console.print(message_panel(message, _provider_label(result)))
+
+    action = "e" if edit else "y" if create else ask_action("yern")
     while action in ("e", "r"):
         if action == "e":
             edited = click.edit(message, extension=".txt", editor=settings.app.editor)
             if edited is not None:
                 message = edited.strip()
             if not message:
-                console.print("[warning]The commit message cannot be empty.[/warning]")
-                action = Prompt.ask("[cyan]Commit? [Y] commit / [E] edit / [N] cancel[/cyan]", choices=["y", "e", "n"], default="e").lower()
+                console.print(notice_panel("warning", "EMPTY MESSAGE", "The commit message cannot be empty."))
+                action = ask_action("en", default="e")
                 continue
-            action = "y" if create else Prompt.ask("[cyan]Commit? [Y] commit / [N] cancel[/cyan]", choices=["y", "n"], default="n").lower()
+            action = "y" if create else ask_action("yn")
             break
-        with console.status("[cyan]Regenerating message…[/cyan]", spinner="dots"):
-            try:
-                result = generate_commit_message(snapshot, settings)
-            except (ProviderError, ConfigError) as exc:
-                console.print(f"\n[error]✕ {exc}[/error]")
-                raise typer.Exit(1) from exc
+
+        result = _generate(snapshot, settings, "Regenerating message…")
         message = result.message
-        provider = f"{result.provider.value.capitalize()} · local fallback" if result.fallback_used else result.provider.value.capitalize()
-        console.print(message_panel(message, provider))
-        action = Prompt.ask("[cyan]Commit? [Y] commit / [E] edit / [R] regenerate / [N] cancel[/cyan]", choices=["y", "e", "r", "n"], default="n").lower()
-    if action == "y":
-        if settings.app.confirm_before_commit and not Confirm.ask("Create this commit?", default=True):
-            console.print("[bright_black]No commit created.[/bright_black]")
-            raise typer.Exit(0)
-        try:
-            repo.index.commit(message)
-        except (GitCommandError, Exception) as exc:
-            console.print(f"[error]Could not create commit: {exc}[/error]")
-            raise typer.Exit(1) from exc
-        console.print("\n[success]✓ Commit created successfully.[/success]")
-    else:
-        console.print("\n[bright_black]Nothing committed. Run  quill --commit  to create this commit.[/bright_black]")
+        console.print(message_panel(message, _provider_label(result)))
+        action = ask_action("yern")
+
+    if action != "y":
+        console.print()
+        console.print(
+            Text.assemble(
+                ("Nothing committed. ", "bright_black"),
+                ("Run ", "bright_black"),
+                ("quill --commit", "info.bold"),
+                (" to create this commit.", "bright_black"),
+            )
+        )
+        return
+
+    if settings.app.confirm_before_commit and not Confirm.ask(
+        Text.assemble(("? ", "info.bold"), ("Create this commit?", "white")), default=True, console=console
+    ):
+        console.print(Text("No commit created.", style="bright_black"))
+        raise typer.Exit(0)
+
+    try:
+        created = repo.index.commit(message)
+    except Exception as exc:
+        _fail(exc, "COMMIT FAILED")
+    console.print()
+    console.print(commit_success_panel(created.hexsha, snapshot.info.current_branch, message))
 
 
 @app.command(name="pull")
-def pull_ollama_model(model: str | None = typer.Argument(None, help="Ollama model ID to download; defaults to the configured model.")) -> None:
+def pull_ollama_model(
+    model: str | None = typer.Argument(None, help="Ollama model ID to download; defaults to the configured model."),
+) -> None:
     try:
         settings = ConfigManager().load()
-        pull_model(model or settings.llm.ollama_model, settings.llm.ollama_host)
+        target = model or settings.llm.ollama_model
+        console.print(section(f"PULLING {target}"))
+        pull_model(target, settings.llm.ollama_host)
     except (ConfigError, ProviderError) as exc:
-        console.print(f"[error]✕ {exc}[/error]")
-        raise typer.Exit(1) from exc
+        _fail(exc, "PULL FAILED")
 
 
 def _first_run_setup() -> None:
@@ -128,8 +174,15 @@ def _first_run_setup() -> None:
     initialize_config(directory)
     if not first_run or not click.get_text_stream("stdin").isatty():
         return
-    console.print("\n[info]First-time setup[/info] Choose a provider and customize any defaults.")
-    provider = Prompt.ask("Provider", choices=["gemini", "openai", "anthropic", "ollama"], default="gemini").lower()
+
+    def ask(label: str, **kwargs) -> str:
+        return Prompt.ask(Text.assemble(("❯ ", "info.bold"), (label, "white")), console=console, **kwargs)
+
+    console.print(setup_header())
+
+    console.print(step_label(1, "Provider"))
+    provider = ask("Provider", choices=["gemini", "openai", "anthropic", "ollama"], default="gemini").lower()
+
     config_file = directory / "config.toml"
     config_text = config_file.read_text(encoding="utf-8")
     model_field, model_default = {
@@ -138,10 +191,22 @@ def _first_run_setup() -> None:
         "anthropic": ("anthropic_model", "claude-haiku-4-5-20251001"),
         "ollama": ("ollama_model", "qwen3:8b"),
     }[provider]
-    model = Prompt.ask("Model ID", default=model_default).strip() or model_default
-    language = Prompt.ask("Output language", default="en").strip() or "en"
-    style = Prompt.ask("Commit style", choices=["conventional", "simple"], default="conventional")
-    confirm = Confirm.ask("Confirm before creating a commit?", default=True)
+
+    console.print(step_label(2, "Model"))
+    model = ask("Model ID", default=model_default).strip() or model_default
+
+    console.print(step_label(3, "Language"))
+    language = ask("Output language", default="en").strip() or "en"
+
+    console.print(step_label(4, "Commit style"))
+    style = ask("Commit style", choices=["conventional", "simple"], default="conventional")
+
+    console.print(step_label(5, "Safety"))
+    confirm = Confirm.ask(
+        Text.assemble(("❯ ", "info.bold"), ("Confirm before creating a commit?", "white")),
+        default=True, console=console,
+    )
+
     replacements = {
         'default_model = "gemini"': f'default_model = "{provider}"',
         f'{model_field} = "{model_default}"': f'{model_field} = {json.dumps(model)}',
@@ -152,6 +217,7 @@ def _first_run_setup() -> None:
     for old, new in replacements.items():
         config_text = config_text.replace(old, new)
     config_file.write_text(config_text, encoding="utf-8")
+
     api_key = ""
     has_key_in_env = {
         "gemini": bool(os.environ.get("GOOGLE_API_KEY") or os.environ.get("QUILL_GOOGLE_API_KEY")),
@@ -159,14 +225,18 @@ def _first_run_setup() -> None:
         "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("QUILL_ANTHROPIC_API_KEY")),
         "ollama": True,
     }[provider]
+
     if provider != "ollama" and not has_key_in_env:
         key_prompts = {
-            "gemini": ("google_api_key", "Google AI API key (https://aistudio.google.com/app/apikey)"),
-            "openai": ("openai_api_key", "OpenAI API key (https://platform.openai.com/api-keys)"),
-            "anthropic": ("anthropic_api_key", "Anthropic API key (https://console.anthropic.com/settings/keys)"),
+            "gemini": ("google_api_key", "Google AI API key", "https://aistudio.google.com/app/apikey"),
+            "openai": ("openai_api_key", "OpenAI API key", "https://platform.openai.com/api-keys"),
+            "anthropic": ("anthropic_api_key", "Anthropic API key", "https://console.anthropic.com/settings/keys"),
         }
-        secret_field, prompt = key_prompts[provider]
-        api_key = Prompt.ask(prompt, password=True).strip()
+        secret_field, label, url = key_prompts[provider]
+        console.print(step_label(6, "API key"))
+        console.print(Text.assemble(("  Get one at ", "bright_black"), (url, "info underline")))
+        api_key = ask(label, password=True).strip()
+
     if api_key:
         secret_file = directory / "secrets.toml"
         secret_values = {"google_api_key": "", "openai_api_key": "", "anthropic_api_key": ""}
@@ -179,12 +249,25 @@ def _first_run_setup() -> None:
             os.chmod(secret_file, 0o600)
         except OSError:
             pass
-        console.print("[success]API key saved to Quill's private user configuration.[/success]")
+        console.print()
+        console.print(status_line("success", "API key saved to Quill's private user configuration."))
     elif provider != "ollama" and not has_key_in_env:
-        console.print(f"[warning]No key entered. Add {secret_field} to secrets.toml before generating messages.[/warning]")
+        console.print()
+        console.print(status_line("warning", f"No key entered. Add {secret_field} to secrets.toml before generating messages."))
         (directory / "secrets.toml").unlink(missing_ok=True)
+
+    console.print()
+    console.print(
+        setup_summary([
+            ("PROVIDER", provider),
+            ("MODEL", model),
+            ("LANGUAGE", language),
+            ("STYLE", style),
+            ("CONFIRM", "yes" if confirm else "no"),
+        ])
+    )
     if provider == "ollama":
-        console.print("[info]Quill can install Ollama on Windows and will download the selected model automatically when first used.[/info]")
+        console.print(status_line("info", "Quill can install Ollama on Windows and will download the selected model automatically on first use."))
 
 
 if __name__ == "__main__":
